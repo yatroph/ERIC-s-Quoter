@@ -1,0 +1,9 @@
+.venv/
+.qa/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+Generated Quotes/
+Costing sheets/~$*.xlsx

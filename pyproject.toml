@@ -1,0 +1,14 @@
+[project]
+name = "erics-quoter"
+version = "1.0.0"
+description = "GDI Ainsworth costing workbook generator"
+requires-python = ">=3.11"
+dependencies = [
+    "customtkinter==6.0.0",
+    "openpyxl==3.1.5",
+    "Pillow==12.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

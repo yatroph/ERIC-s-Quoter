@@ -1,0 +1,27 @@
+"""Typed request models shared by the UI and workbook generator."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+
+
+class QuoteMode(StrEnum):
+    MULTI_LOCATION = "multi_location"
+    MULTI_YEAR = "multi_year"
+
+
+@dataclass(frozen=True, slots=True)
+class LocationSpec:
+    name: str
+    optional: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class QuoteRequest:
+    mode: QuoteMode
+    customer_name: str
+    project_scope: str = ""
+    locations: tuple[LocationSpec, ...] = field(default_factory=tuple)
+    output_directory: Path = Path("Generated Quotes")
