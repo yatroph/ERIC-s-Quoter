@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 MAX_RECENT_CUSTOMERS = 12
+MAX_CUSTOMER_CHARACTERS = 500
+_PROCESS_HISTORY_LOCK = threading.RLock()
 
 
 def history_path() -> Path:
@@ -26,34 +31,79 @@ def load_recent_customers() -> list[str]:
         return []
 
     values = payload.get("customers", []) if isinstance(payload, dict) else []
-    return [value for value in values if isinstance(value, str) and value.strip()][
-        :MAX_RECENT_CUSTOMERS
+    normalized = [
+        value.strip()
+        for value in values
+        if isinstance(value, str)
+        and value.strip()
+        and len(value.strip()) <= MAX_CUSTOMER_CHARACTERS
     ]
+    return normalized[:MAX_RECENT_CUSTOMERS]
 
 
 def remember_customer(customer_name: str) -> None:
     customer_name = customer_name.strip()
-    if not customer_name:
+    if not customer_name or len(customer_name) > MAX_CUSTOMER_CHARACTERS:
         return
 
-    existing = load_recent_customers()
-    deduplicated = [
-        value for value in existing if value.casefold() != customer_name.casefold()
-    ]
-    values = [customer_name, *deduplicated][:MAX_RECENT_CUSTOMERS]
-
     path = history_path()
-    temp_path = path.with_suffix(".tmp")
+    temp_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path.write_text(
-            json.dumps({"customers": values}, indent=2),
-            encoding="utf-8",
-        )
-        temp_path.replace(path)
+        with _PROCESS_HISTORY_LOCK:
+            with _exclusive_history_lock(path):
+                existing = load_recent_customers()
+                deduplicated = [
+                    value
+                    for value in existing
+                    if value.casefold() != customer_name.casefold()
+                ]
+                values = [customer_name, *deduplicated][:MAX_RECENT_CUSTOMERS]
+                with NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    prefix="customers-",
+                    suffix=".tmp",
+                    dir=path.parent,
+                    delete=False,
+                ) as temp_file:
+                    json.dump({"customers": values}, temp_file, indent=2)
+                    temp_file.write("\n")
+                    temp_path = Path(temp_file.name)
+                temp_path.replace(path)
     except OSError:
         # Autocomplete is a convenience; a locked profile must not block quoting.
         try:
-            temp_path.unlink(missing_ok=True)
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+@contextmanager
+def _exclusive_history_lock(path: Path):
+    """Serialize history updates across simultaneous app instances."""
+    lock_path = path.with_suffix(".lock")
+    with lock_path.open("a+b") as lock_file:
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
+        lock_file.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

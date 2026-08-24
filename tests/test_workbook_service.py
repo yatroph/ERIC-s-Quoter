@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from zipfile import ZipFile
+
 from openpyxl import load_workbook
 import pytest
 
+from erics_quoter import workbook_service
+from erics_quoter.history import load_recent_customers, remember_customer
 from erics_quoter.models import LocationSpec, QuoteMode, QuoteRequest
 from erics_quoter.workbook_service import (
     WorkbookGenerationError,
@@ -184,3 +190,143 @@ def test_supports_six_optional_locations_without_overwriting(tmp_path):
     assert summary["B35"].value == "='Option 6'!R1"
     assert summary.row_dimensions[35].hidden is False
     assert all(workbook[f"Location {index}"].sheet_state == "hidden" for index in range(1, 7))
+
+
+def test_formula_looking_location_name_is_stored_as_literal_text(tmp_path):
+    payload = '=HYPERLINK("https://example.invalid","Open")'
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_LOCATION,
+            customer_name="Formula Test",
+            locations=(LocationSpec(payload),),
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    sheet = workbook["Location 1"]
+    assert sheet["A1"].value == payload
+    assert sheet["A1"].data_type == "s"
+    assert sheet["R1"].value == payload
+    assert sheet["R1"].data_type == "s"
+
+
+@pytest.mark.parametrize(
+    ("customer_name", "location_name", "message"),
+    [
+        ("Bad\x00Customer", "Location 1", "unsupported character"),
+        ("Customer", "Bad\x00Location", "unsupported character"),
+        ("C" * 501, "Location 1", "500 characters or fewer"),
+        ("Customer", "L" * 501, "500 characters or fewer"),
+    ],
+)
+def test_rejects_input_excel_cannot_safely_store(
+    tmp_path,
+    customer_name,
+    location_name,
+    message,
+):
+    with pytest.raises(WorkbookGenerationError, match=message):
+        generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_LOCATION,
+                customer_name=customer_name,
+                locations=(LocationSpec(location_name),),
+                output_directory=tmp_path,
+            )
+        )
+
+
+@pytest.mark.parametrize("contract_years", [True, 1.5, "2"])
+def test_rejects_non_integer_contract_terms(tmp_path, contract_years):
+    with pytest.raises(WorkbookGenerationError, match="whole number"):
+        generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_YEAR,
+                customer_name="Invalid Term Type",
+                contract_years=contract_years,
+                output_directory=tmp_path,
+            )
+        )
+
+
+def test_existing_file_cannot_be_used_as_output_folder(tmp_path):
+    output_file = tmp_path / "not-a-folder"
+    output_file.write_text("sentinel", encoding="utf-8")
+
+    with pytest.raises(WorkbookGenerationError, match="output folder"):
+        generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_YEAR,
+                customer_name="Output Error",
+                contract_years=1,
+                output_directory=output_file,
+            )
+        )
+    assert output_file.read_text(encoding="utf-8") == "sentinel"
+
+
+def test_corrupted_template_uses_friendly_error_path(tmp_path, monkeypatch):
+    fake_root = tmp_path / "resources"
+    costing = fake_root / "Costing sheets"
+    costing.mkdir(parents=True)
+    (costing / workbook_service.MULTI_YEAR_TEMPLATE.name).write_bytes(b"not a zip")
+    monkeypatch.setattr(workbook_service, "resource_root", lambda: fake_root)
+
+    with pytest.raises(WorkbookGenerationError, match="Could not create"):
+        generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_YEAR,
+                customer_name="Corrupt Template",
+                contract_years=1,
+                output_directory=tmp_path / "output",
+            )
+        )
+
+
+def test_concurrent_generations_reserve_unique_destinations(tmp_path):
+    request = QuoteRequest(
+        mode=QuoteMode.MULTI_YEAR,
+        customer_name="Concurrent Customer",
+        contract_years=1,
+        output_directory=tmp_path,
+    )
+    workers = 6
+    barrier = Barrier(workers)
+
+    def create_after_barrier():
+        barrier.wait(timeout=30)
+        return generate_quote(request)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        destinations = list(executor.map(lambda _index: create_after_barrier(), range(workers)))
+
+    assert len(set(destinations)) == workers
+    assert all(destination.exists() for destination in destinations)
+
+
+def test_customer_history_survives_concurrent_writers(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    customers = [f"Customer {index}" for index in range(20)]
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        list(executor.map(remember_customer, customers))
+
+    saved = load_recent_customers()
+    assert len(saved) == 12
+    assert len(set(saved)) == 12
+    assert set(saved).issubset(customers)
+
+
+def test_source_templates_do_not_publish_printer_blobs_or_personal_authors():
+    for template_name in (
+        workbook_service.MULTI_LOCATION_TEMPLATE,
+        workbook_service.MULTI_YEAR_TEMPLATE,
+    ):
+        template = workbook_service.resource_root() / template_name
+        with ZipFile(template) as archive:
+            assert not any("printerSettings" in name for name in archive.namelist())
+        workbook = load_workbook(template, read_only=True)
+        assert workbook.properties.creator == "GDI Ainsworth"
+        assert workbook.properties.lastModifiedBy == "GDI Ainsworth"
+        workbook.close()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from copy import copy, deepcopy
@@ -18,9 +19,11 @@ MULTI_LOCATION_TEMPLATE = Path("Costing sheets") / "Costing Sheet Multiple Locat
 MULTI_YEAR_TEMPLATE = Path("Costing sheets") / "Costing Sheet.template 2026.xlsx"
 MAX_LOCATIONS = 6
 MAX_CONTRACT_YEARS = 5
+MAX_INPUT_CHARACTERS = 500
 OPTION_ROW_COUNT = 6
 OPTION_INSERT_AT = 32
 OPTION_INSERT_COUNT = 4
+ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f]")
 CELL_REFERENCE_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_!.])(?P<column>\$?[A-Z]{1,3})(?P<absolute_row>\$?)(?P<row>\d+)"
     r"(?![A-Za-z0-9_]|\s*\()"
@@ -41,7 +44,10 @@ def resource_root() -> Path:
 def generate_quote(request: QuoteRequest) -> Path:
     normalized = _validate_request(request)
     output_directory = normalized.output_directory.expanduser().resolve()
-    output_directory.mkdir(parents=True, exist_ok=True)
+    try:
+        output_directory.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise WorkbookGenerationError(f"Could not use the output folder: {exc}") from exc
 
     template_name = (
         MULTI_LOCATION_TEMPLATE
@@ -52,17 +58,19 @@ def generate_quote(request: QuoteRequest) -> Path:
     if not template_path.is_file():
         raise WorkbookGenerationError(f"Template not found: {template_path}")
 
-    destination = _unique_destination(normalized, output_directory)
-    workbook = load_workbook(template_path, data_only=False, keep_links=True)
-
-    if normalized.mode is QuoteMode.MULTI_LOCATION:
-        _prepare_multi_location(workbook, normalized)
-    else:
-        _prepare_multi_year(workbook, normalized)
-
-    _request_full_recalculation(workbook)
+    workbook = None
     temp_path: Path | None = None
+    destination: Path | None = None
+    committed = False
     try:
+        workbook = load_workbook(template_path, data_only=False, keep_links=True)
+        if normalized.mode is QuoteMode.MULTI_LOCATION:
+            _prepare_multi_location(workbook, normalized)
+        else:
+            _prepare_multi_year(workbook, normalized)
+
+        _sanitize_workbook_metadata(workbook)
+        _request_full_recalculation(workbook)
         with NamedTemporaryFile(
             prefix="erics-quoter-",
             suffix=".xlsx",
@@ -71,43 +79,94 @@ def generate_quote(request: QuoteRequest) -> Path:
         ) as temp_file:
             temp_path = Path(temp_file.name)
         workbook.save(temp_path)
+        destination = _unique_destination(normalized, output_directory)
         temp_path.replace(destination)
-    except (OSError, ValueError, KeyError) as exc:
+        committed = True
+    except Exception as exc:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
-        raise WorkbookGenerationError(f"Could not save the workbook: {exc}") from exc
+        if destination is not None and not committed:
+            try:
+                if destination.stat().st_size == 0:
+                    destination.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if isinstance(exc, WorkbookGenerationError):
+            raise
+        raise WorkbookGenerationError(f"Could not create the workbook: {exc}") from exc
     finally:
-        workbook.close()
+        if workbook is not None:
+            workbook.close()
 
+    if destination is None:
+        raise WorkbookGenerationError("Could not reserve a destination workbook name.")
     return destination
 
 
 def _validate_request(request: QuoteRequest) -> QuoteRequest:
-    customer = request.customer_name.strip()
-    project = request.project_scope.strip()
-    if not customer:
-        raise WorkbookGenerationError("Enter a customer name.")
+    if not isinstance(request.mode, QuoteMode):
+        raise WorkbookGenerationError("Choose a valid quote mode.")
 
-    locations = tuple(
-        LocationSpec(location.name.strip(), location.optional)
-        for location in request.locations
-    )
+    customer = _validated_text(request.customer_name, "customer name", required=True)
+    project = _validated_text(request.project_scope, "project description")
+
+    try:
+        raw_locations = tuple(request.locations)
+    except TypeError as exc:
+        raise WorkbookGenerationError("Locations must be a list of location entries.") from exc
+
+    locations: list[LocationSpec] = []
+    for location in raw_locations:
+        if not isinstance(location, LocationSpec):
+            raise WorkbookGenerationError("Every location must be a valid location entry.")
+        locations.append(
+            LocationSpec(
+                _validated_text(location.name, "location name", required=True),
+                bool(location.optional),
+            )
+        )
+    normalized_locations = tuple(locations)
     if request.mode is QuoteMode.MULTI_LOCATION:
-        if not 1 <= len(locations) <= MAX_LOCATIONS:
+        if not 1 <= len(normalized_locations) <= MAX_LOCATIONS:
             raise WorkbookGenerationError("Choose between 1 and 6 locations.")
-        if any(not location.name for location in locations):
-            raise WorkbookGenerationError("Every location needs a name.")
-    elif not 1 <= request.contract_years <= MAX_CONTRACT_YEARS:
-        raise WorkbookGenerationError("Choose between 1 and 5 contract years.")
+    else:
+        if isinstance(request.contract_years, bool) or not isinstance(
+            request.contract_years, int
+        ):
+            raise WorkbookGenerationError("Contract years must be a whole number.")
+        if not 1 <= request.contract_years <= MAX_CONTRACT_YEARS:
+            raise WorkbookGenerationError("Choose between 1 and 5 contract years.")
+
+    try:
+        output_directory = Path(request.output_directory)
+    except TypeError as exc:
+        raise WorkbookGenerationError("Choose a valid output folder.") from exc
 
     return QuoteRequest(
         mode=request.mode,
         customer_name=customer,
         project_scope=project,
-        locations=locations,
+        locations=normalized_locations,
         contract_years=request.contract_years,
-        output_directory=Path(request.output_directory),
+        output_directory=output_directory,
     )
+
+
+def _validated_text(value: object, label: str, *, required: bool = False) -> str:
+    if not isinstance(value, str):
+        raise WorkbookGenerationError(f"Enter a valid {label}.")
+    normalized = value.strip()
+    if required and not normalized:
+        if label == "customer name":
+            raise WorkbookGenerationError("Enter a customer name.")
+        raise WorkbookGenerationError("Every location needs a name.")
+    if len(normalized) > MAX_INPUT_CHARACTERS:
+        raise WorkbookGenerationError(
+            f"Keep the {label} to {MAX_INPUT_CHARACTERS} characters or fewer."
+        )
+    if ILLEGAL_EXCEL_TEXT.search(normalized):
+        raise WorkbookGenerationError(f"The {label} contains an unsupported character.")
+    return normalized
 
 
 def _prepare_multi_year(workbook, request: QuoteRequest) -> None:
@@ -406,18 +465,24 @@ def _shift_data_validation_rows(worksheet, insertion_row: int, amount: int) -> N
 
 def _set_location_name(worksheet, name: str) -> None:
     _set_title_cell(worksheet, name)
-    worksheet["R1"] = name
+    _set_literal_text(worksheet["R1"], name)
 
 
 def _set_title_cell(worksheet, title: str) -> None:
     cell = worksheet["A1"]
     if isinstance(cell, MergedCell):
         raise WorkbookGenerationError(f"Cannot update the title on {worksheet.title}.")
-    cell.value = title
+    _set_literal_text(cell, title)
     alignment = copy(cell.alignment)
     alignment.wrap_text = True
     alignment.shrink_to_fit = True
     cell.alignment = alignment
+
+
+def _set_literal_text(cell, value: str) -> None:
+    """Store user-controlled text without letting Excel interpret it as a formula."""
+    cell.value = value
+    cell.data_type = "s"
 
 
 def _customer_title(request: QuoteRequest) -> str:
@@ -437,6 +502,13 @@ def _request_full_recalculation(workbook) -> None:
     workbook.calculation.calcMode = "auto"
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
+
+
+def _sanitize_workbook_metadata(workbook) -> None:
+    """Remove personal source-template metadata from every generated workbook."""
+    workbook.properties.creator = "GDI Ainsworth"
+    workbook.properties.lastModifiedBy = "GDI Ainsworth"
+    workbook.properties.lastPrinted = None
 
 
 def _select_only(workbook, selected_worksheet) -> None:
@@ -461,10 +533,18 @@ def _unique_destination(request: QuoteRequest, output_directory: Path) -> Path:
     base = _safe_filename(f"{request.customer_name}{project_part} - {mode_name}")
     candidate = output_directory / f"{base}.xlsx"
     suffix = 2
-    while candidate.exists():
-        candidate = output_directory / f"{base} ({suffix}).xlsx"
-        suffix += 1
-    return candidate
+    while True:
+        try:
+            descriptor = os.open(
+                candidate,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            )
+        except FileExistsError:
+            candidate = output_directory / f"{base} ({suffix}).xlsx"
+            suffix += 1
+            continue
+        os.close(descriptor)
+        return candidate
 
 
 def _safe_filename(value: str) -> str:

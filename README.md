@@ -50,7 +50,7 @@ data folder. They are not uploaded anywhere.
 Inno Setup 6 must be installed. Then run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.1.1
 ```
 
 The versioned installer is written to `dist\installer`.
