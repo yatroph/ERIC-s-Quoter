@@ -13,6 +13,7 @@ from PIL import Image, ImageGrab, ImageOps, ImageTk
 from .history import load_recent_customers, remember_customer
 from .models import LocationSpec, QuoteMode, QuoteRequest
 from .workbook_service import (
+    MAX_CONTRACT_YEARS,
     MAX_LOCATIONS,
     WorkbookGenerationError,
     generate_quote,
@@ -61,6 +62,13 @@ def _enable_keyboard_button(button: ctk.CTkButton, on_blur=None) -> None:
             on_blur()
 
     focus_target.bind("<FocusOut>", restore)
+
+
+def _restore_keyboard_focus(button: ctk.CTkButton) -> None:
+    """Keep the focus ring when a keyboard action also repaints a button."""
+    focus_target = button._canvas  # noqa: SLF001 - no public CTk focus hook
+    if focus_target.focus_get() is focus_target:
+        button.configure(border_width=2, border_color=COLORS["focus"])
 
 
 class MeshBackground(tk.Canvas):
@@ -177,6 +185,7 @@ class LocationPill(ctk.CTkFrame):
                 text_color=COLORS["navy"],
                 border_width=0,
             )
+        _restore_keyboard_focus(self.state_button)
 
     def spec(self) -> LocationSpec:
         return LocationSpec(self.name_var.get().strip(), self.optional_var.get())
@@ -195,7 +204,8 @@ class QuoterApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
 
         self._mode = QuoteMode.MULTI_LOCATION
-        self._location_count = 2
+        self._location_count = 1
+        self._contract_years = MAX_CONTRACT_YEARS
         self._screenshot_path = screenshot_path
         self._recent_customers = load_recent_customers()
         self._resize_job: str | None = None
@@ -306,7 +316,7 @@ class QuoterApp(ctk.CTk):
         )
         self.multi_year_button = self._mode_button(
             track,
-            "Multi-year contract",
+            "Contract pricing",
             QuoteMode.MULTI_YEAR,
             1,
         )
@@ -458,7 +468,7 @@ class QuoterApp(ctk.CTk):
         ).grid(row=0, column=0, sticky="w", padx=(10, 12))
         ctk.CTkLabel(
             locations_header,
-            text="Tap a status pill to mark a location optional.",
+            text="Select a status pill to mark a location optional.",
             text_color=COLORS["muted"],
             font=ctk.CTkFont("Segoe UI", 10),
         ).grid(row=0, column=1, sticky="w")
@@ -473,7 +483,7 @@ class QuoterApp(ctk.CTk):
         self.minus_button = self._step_button(stepper, "−", -1, 0)
         self.location_count_label = ctk.CTkLabel(
             stepper,
-            text="2",
+            text=str(self._location_count),
             width=42,
             text_color=COLORS["text"],
             font=ctk.CTkFont("Segoe UI", 11, weight="bold"),
@@ -504,19 +514,106 @@ class QuoterApp(ctk.CTk):
             border_width=1,
             border_color=COLORS["border"],
         )
-        self.year_panel.grid_columnconfigure((0, 1, 2), weight=1)
-        self._year_stat(self.year_panel, "5", "contract years", 0)
-        self._year_stat(self.year_panel, "1", "combined total", 1)
-        self._year_stat(self.year_panel, "A–V", "complete print range", 2)
+        self.year_panel.grid_columnconfigure(0, weight=1)
+        self.year_panel.grid_rowconfigure(3, weight=1)
+
+        term_header = ctk.CTkFrame(self.year_panel, fg_color="transparent")
+        term_header.grid(row=0, column=0, sticky="ew", padx=28, pady=(18, 8))
+        term_header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            self.year_panel,
-            text="The workbook opens directly on Multi Year Contract Pricing."
-            " Years 1–5 and the contract total fit on one landscape page.",
-            justify="center",
-            wraplength=690,
+            term_header,
+            text="Contract term",
+            anchor="w",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont("Segoe UI", 14, weight="bold"),
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            term_header,
+            text="Choose 1–5 years. One year uses the standard Pricing sheet.",
+            anchor="e",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont("Segoe UI", 11),
-        ).grid(row=1, column=0, columnspan=3, sticky="ew", padx=28, pady=(8, 24))
+            font=ctk.CTkFont("Segoe UI", 10),
+        ).grid(row=0, column=1, sticky="e", padx=(16, 0))
+
+        year_track = ctk.CTkFrame(
+            self.year_panel,
+            height=54,
+            corner_radius=27,
+            fg_color=COLORS["surface_strong"],
+        )
+        year_track.grid(row=1, column=0, sticky="ew", padx=26)
+        year_track.grid_propagate(False)
+        year_track.grid_columnconfigure(tuple(range(MAX_CONTRACT_YEARS)), weight=1)
+        self.year_buttons: dict[int, ctk.CTkButton] = {}
+        for year in range(1, MAX_CONTRACT_YEARS + 1):
+            button = self._year_button(year_track, year)
+            button.grid(
+                row=0,
+                column=year - 1,
+                sticky="ew",
+                padx=(5, 2) if year == 1 else (2, 5) if year == 5 else 2,
+                pady=6,
+            )
+            self.year_buttons[year] = button
+
+        self.year_result = ctk.CTkFrame(
+            self.year_panel,
+            height=76,
+            corner_radius=22,
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        self.year_result.grid(row=2, column=0, sticky="ew", padx=26, pady=(12, 0))
+        self.year_result.grid_propagate(False)
+        self.year_result.grid_columnconfigure(0, weight=1)
+        self.year_result_title = ctk.CTkLabel(
+            self.year_result,
+            text="",
+            anchor="w",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont("Segoe UI", 13, weight="bold"),
+        )
+        self.year_result_title.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(20, 12),
+            pady=(11, 0),
+        )
+        self.year_result_detail = ctk.CTkLabel(
+            self.year_result,
+            text="",
+            anchor="w",
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont("Segoe UI", 10),
+        )
+        self.year_result_detail.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=(20, 12),
+            pady=(0, 10),
+        )
+        self.year_sheet_badge = ctk.CTkLabel(
+            self.year_result,
+            text="",
+            width=116,
+            height=32,
+            corner_radius=16,
+            fg_color=COLORS["tint"],
+            text_color=COLORS["primary"],
+            font=ctk.CTkFont("Segoe UI", 10, weight="bold"),
+        )
+        self.year_sheet_badge.grid(
+            row=0,
+            column=1,
+            rowspan=2,
+            padx=(6, 16),
+            pady=12,
+        )
+        self._restore_year_style()
+        self._update_contract_copy()
 
     def _step_button(self, master, text: str, delta: int, column: int):
         button = ctk.CTkButton(
@@ -536,21 +633,87 @@ class QuoterApp(ctk.CTk):
         _enable_keyboard_button(button)
         return button
 
-    def _year_stat(self, master, value: str, label: str, column: int) -> None:
-        frame = ctk.CTkFrame(master, fg_color="transparent")
-        frame.grid(row=0, column=column, sticky="nsew", padx=12, pady=(22, 4))
-        ctk.CTkLabel(
-            frame,
-            text=value,
-            text_color=COLORS["primary"],
-            font=ctk.CTkFont("Segoe UI", 24, weight="bold"),
-        ).pack()
-        ctk.CTkLabel(
-            frame,
+    def _year_button(self, master, year: int) -> ctk.CTkButton:
+        label = "1 Year" if year == 1 else f"{year} Years"
+        button = ctk.CTkButton(
+            master,
             text=label,
+            height=42,
+            corner_radius=21,
+            bg_color=COLORS["surface_strong"],
+            fg_color="transparent",
+            hover_color=COLORS["surface_alt"],
             text_color=COLORS["muted"],
-            font=ctk.CTkFont("Segoe UI", 10),
-        ).pack(pady=(0, 4))
+            font=ctk.CTkFont("Segoe UI", 10, weight="bold"),
+            command=lambda value=year: self._set_contract_years(value),
+        )
+        _enable_keyboard_button(button, self._restore_year_style)
+        focus_target = button._canvas  # noqa: SLF001 - no public CTk focus hook
+        focus_target.bind("<Left>", lambda _event: self._move_contract_years(-1))
+        focus_target.bind("<Right>", lambda _event: self._move_contract_years(1))
+        focus_target.bind("<Home>", lambda _event: self._focus_contract_year(1))
+        focus_target.bind(
+            "<End>",
+            lambda _event: self._focus_contract_year(MAX_CONTRACT_YEARS),
+        )
+        return button
+
+    def _set_contract_years(self, years: int) -> None:
+        self._contract_years = max(1, min(MAX_CONTRACT_YEARS, years))
+        self._restore_year_style()
+        self._update_contract_copy()
+        self._update_preview()
+
+    def _move_contract_years(self, delta: int) -> str:
+        return self._focus_contract_year(self._contract_years + delta)
+
+    def _focus_contract_year(self, years: int) -> str:
+        self._set_contract_years(years)
+        self.year_buttons[self._contract_years]._canvas.focus_set()  # noqa: SLF001
+        self._restore_year_style()
+        return "break"
+
+    def _restore_year_style(self) -> None:
+        selected = {
+            "fg_color": COLORS["surface"],
+            "hover_color": "#F8FBFC",
+            "text_color": COLORS["primary"],
+            "border_width": 1,
+            "border_color": COLORS["border"],
+        }
+        unselected = {
+            "fg_color": "transparent",
+            "hover_color": COLORS["surface_alt"],
+            "text_color": COLORS["muted"],
+            "border_width": 0,
+        }
+        for year, button in self.year_buttons.items():
+            button.configure(**(selected if year == self._contract_years else unselected))
+            button._canvas.configure(  # noqa: SLF001 - roving keyboard focus
+                takefocus=1 if year == self._contract_years else 0
+            )
+            _restore_keyboard_focus(button)
+
+    def _update_contract_copy(self) -> None:
+        if self._contract_years == 1:
+            title = "Standard pricing workbook"
+            detail = "Opens on Pricing with no yearly comparison columns."
+            badge = "Pricing sheet"
+            subtitle = "Build a standard one-year pricing workbook."
+        else:
+            title = f"{self._contract_years}-year contract workbook"
+            detail = (
+                f"Shows Years 1–{self._contract_years} plus the combined contract total "
+                "on one page."
+            )
+            badge = "Contract summary"
+            subtitle = f"Build a {self._contract_years}-year contract workbook."
+
+        self.year_result_title.configure(text=title)
+        self.year_result_detail.configure(text=detail)
+        self.year_sheet_badge.configure(text=badge)
+        if self._mode is QuoteMode.MULTI_YEAR:
+            self.header_subtitle.configure(text=subtitle)
 
     def _build_output_control(self) -> None:
         output = ctk.CTkFrame(self.shell, fg_color="transparent")
@@ -657,9 +820,7 @@ class QuoterApp(ctk.CTk):
         else:
             self.locations_panel.grid_remove()
             self.year_panel.grid(row=0, column=0, sticky="nsew")
-            self.header_subtitle.configure(
-                text="Build a complete five-year contract workbook."
-            )
+            self._update_contract_copy()
         self._update_preview()
 
     def _restore_mode_style(self) -> None:
@@ -682,6 +843,8 @@ class QuoterApp(ctk.CTk):
         self.multi_year_button.configure(
             **(selected if self._mode is QuoteMode.MULTI_YEAR else unselected)
         )
+        _restore_keyboard_focus(self.multi_location_button)
+        _restore_keyboard_focus(self.multi_year_button)
 
     def _change_location_count(self, delta: int) -> None:
         self._location_count = max(1, min(MAX_LOCATIONS, self._location_count + delta))
@@ -695,9 +858,15 @@ class QuoterApp(ctk.CTk):
             else:
                 row.grid_remove()
         self.location_count_label.configure(text=str(self._location_count))
-        self.minus_button.configure(state="disabled" if self._location_count == 1 else "normal")
-        self.plus_button.configure(
-            state="disabled" if self._location_count == MAX_LOCATIONS else "normal"
+        minus_enabled = self._location_count > 1
+        plus_enabled = self._location_count < MAX_LOCATIONS
+        self.minus_button.configure(state="normal" if minus_enabled else "disabled")
+        self.plus_button.configure(state="normal" if plus_enabled else "disabled")
+        self.minus_button._canvas.configure(  # noqa: SLF001 - no public CTk focus hook
+            takefocus=1 if minus_enabled else 0
+        )
+        self.plus_button._canvas.configure(  # noqa: SLF001 - no public CTk focus hook
+            takefocus=1 if plus_enabled else 0
         )
 
     def _validate_customer_inline(self, _event=None) -> bool:
@@ -756,6 +925,7 @@ class QuoterApp(ctk.CTk):
             customer_name=self.customer_var.get(),
             project_scope=self.project_var.get(),
             locations=self._current_locations() if self._mode is QuoteMode.MULTI_LOCATION else (),
+            contract_years=self._contract_years,
             output_directory=Path(self.output_var.get().strip()),
         )
 
@@ -836,7 +1006,12 @@ class QuoterApp(ctk.CTk):
             return
         customer = self.customer_var.get().strip() or "Customer"
         project = self.project_var.get().strip()
-        mode = "Multi Location" if self._mode is QuoteMode.MULTI_LOCATION else "Multi Year"
+        if self._mode is QuoteMode.MULTI_LOCATION:
+            mode = "Multi Location"
+        elif self._contract_years == 1:
+            mode = "Pricing"
+        else:
+            mode = f"{self._contract_years} Year Contract"
         project_text = f" - {project}" if project else ""
         self.preview_label.configure(
             text=f"{customer}{project_text} - {mode}.xlsx"

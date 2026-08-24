@@ -24,4 +24,5 @@ class QuoteRequest:
     customer_name: str
     project_scope: str = ""
     locations: tuple[LocationSpec, ...] = field(default_factory=tuple)
+    contract_years: int = 5
     output_directory: Path = Path("Generated Quotes")

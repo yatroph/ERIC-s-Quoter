@@ -17,6 +17,7 @@ from .models import LocationSpec, QuoteMode, QuoteRequest
 MULTI_LOCATION_TEMPLATE = Path("Costing sheets") / "Costing Sheet Multiple Location.2026.xlsx"
 MULTI_YEAR_TEMPLATE = Path("Costing sheets") / "Costing Sheet.template 2026.xlsx"
 MAX_LOCATIONS = 6
+MAX_CONTRACT_YEARS = 5
 OPTION_ROW_COUNT = 6
 OPTION_INSERT_AT = 32
 OPTION_INSERT_COUNT = 4
@@ -96,12 +97,15 @@ def _validate_request(request: QuoteRequest) -> QuoteRequest:
             raise WorkbookGenerationError("Choose between 1 and 6 locations.")
         if any(not location.name for location in locations):
             raise WorkbookGenerationError("Every location needs a name.")
+    elif not 1 <= request.contract_years <= MAX_CONTRACT_YEARS:
+        raise WorkbookGenerationError("Choose between 1 and 5 contract years.")
 
     return QuoteRequest(
         mode=request.mode,
         customer_name=customer,
         project_scope=project,
         locations=locations,
+        contract_years=request.contract_years,
         output_directory=Path(request.output_directory),
     )
 
@@ -114,10 +118,29 @@ def _prepare_multi_year(workbook, request: QuoteRequest) -> None:
 
     pricing = workbook["Pricing"]
     multi_year = workbook["Multi Year Contract Pricing"]
+    pricing["R27"] = "=IFERROR((N27+H27)/P27,0)"
     pricing["R37"] = "=IFERROR(M37/P37,0)"
     pricing["R51"] = "=IFERROR(M51/P51,0)"
+    if request.contract_years == 1:
+        pricing.sheet_state = "visible"
+        multi_year.sheet_state = "hidden"
+        pricing.print_area = "A1:P65"
+        pricing.sheet_properties.pageSetUpPr.fitToPage = True
+        pricing.page_setup.fitToWidth = 1
+        pricing.page_setup.fitToHeight = 1
+        _select_only(workbook, pricing)
+        return
+
     pricing.sheet_state = "hidden"
     multi_year.sheet_state = "visible"
+    year_columns = ("P", "Q", "R", "S", "T")
+    for year_number, column in enumerate(year_columns, start=1):
+        multi_year.column_dimensions[column].hidden = year_number > request.contract_years
+
+    last_year_column = year_columns[request.contract_years - 1]
+    for row in (69, 71, 73, 75, 77, 78, 79):
+        multi_year[f"V{row}"] = f"=SUM(P{row}:{last_year_column}{row})"
+
     multi_year.print_area = "A1:V80"
     multi_year.sheet_properties.pageSetUpPr.fitToPage = True
     multi_year.page_setup.orientation = "landscape"
@@ -428,7 +451,12 @@ def _select_only(workbook, selected_worksheet) -> None:
 
 
 def _unique_destination(request: QuoteRequest, output_directory: Path) -> Path:
-    mode_name = "Multi Location" if request.mode is QuoteMode.MULTI_LOCATION else "Multi Year"
+    if request.mode is QuoteMode.MULTI_LOCATION:
+        mode_name = "Multi Location"
+    elif request.contract_years == 1:
+        mode_name = "Pricing"
+    else:
+        mode_name = f"{request.contract_years} Year Contract"
     project_part = f" - {request.project_scope}" if request.project_scope else ""
     base = _safe_filename(f"{request.customer_name}{project_part} - {mode_name}")
     candidate = output_directory / f"{base}.xlsx"

@@ -19,8 +19,9 @@ The repository already includes a project-local `.venv` and an F5 launch profile
 
 1. Open this folder in VS Code.
 2. Press **F5**.
-3. Choose **Multi-location** or **Multi-year contract**.
-4. Enter the customer, optional project scope, and location details.
+3. Choose **Multi-location** or **Contract pricing**.
+4. Enter the customer and optional project scope, then choose locations or a
+   one-to-five-year contract term.
 5. Select **Create & open workbook**.
 
 If the environment needs to be rebuilt:
@@ -31,6 +32,9 @@ python -m venv .venv
 ```
 
 The app never edits either source workbook. Generated files receive unique names and default to `Documents\GDI Quotes`.
+Selecting one contract year creates the standard `Pricing` sheet without the
+yearly comparison layout; terms from two through five years show only the
+selected year columns plus the combined contract total.
 
 Recent customer names are stored only in the current Windows user's local app
 data folder. They are not uploaded anywhere.
@@ -46,7 +50,7 @@ data folder. They are not uploaded anywhere.
 Inno Setup 6 must be installed. Then run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.1.0
 ```
 
 The versioned installer is written to `dist\installer`.

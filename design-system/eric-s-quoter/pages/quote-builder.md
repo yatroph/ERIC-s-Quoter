@@ -10,7 +10,7 @@ These rules override the master design system only for the workbook-builder wind
 - Use one centered, rounded app shell over the supplied GDI mesh background.
 - Keep the main workflow on one screen; only the location list scrolls when needed.
 - Use a two-option segmented pill for Multi-location and Multi-year modes.
-- Use progressive disclosure: show locations only for Multi-location and a compact five-year summary for Multi-year.
+- Use progressive disclosure: show locations only for Multi-location and a compact 1–5 year selector for Contract pricing.
 
 ## Brand and typography
 
@@ -25,6 +25,7 @@ These rules override the master design system only for the workbook-builder wind
 - Required/Optional state is expressed with text as well as color.
 - Selected pricing mode is conveyed by surface, border, and text contrast.
 - Use a pill stepper for 1-6 locations.
+- Use a five-segment, text-labelled pill for the 1–5 year contract term.
 - Keep controls at least 44px high where practical.
 
 ## Avoid

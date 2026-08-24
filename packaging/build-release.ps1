@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = "1.0.0"
+    [string]$Version = "1.1.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +32,33 @@ if (-not $versionMatch.Success) {
 }
 if ($Version -ne $versionMatch.Groups['version'].Value) {
     throw "Requested version $Version does not match pyproject.toml version $($versionMatch.Groups['version'].Value)."
+}
+
+$versionParts = $Version.Split('.')
+$versionTuple = "($($versionParts[0]), $($versionParts[1]), $($versionParts[2]), 0)"
+$versionChecks = @(
+    @{
+        Path = Join-Path $projectRoot "erics_quoter\__init__.py"
+        Text = "__version__ = `"$Version`""
+    },
+    @{
+        Path = Join-Path $packagingRoot "version-info.txt"
+        Text = "filevers=$versionTuple"
+    },
+    @{
+        Path = Join-Path $packagingRoot "version-info.txt"
+        Text = "StringStruct(u'ProductVersion', u'$Version')"
+    },
+    @{
+        Path = Join-Path $packagingRoot "ERICsQuoter.iss"
+        Text = "#define MyAppVersion `"$Version`""
+    }
+)
+foreach ($check in $versionChecks) {
+    $contents = Get-Content -LiteralPath $check.Path -Raw
+    if (-not $contents.Contains($check.Text)) {
+        throw "Release version $Version is not synchronized in $($check.Path)."
+    }
 }
 
 Push-Location $projectRoot
