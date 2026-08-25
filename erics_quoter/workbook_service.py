@@ -674,7 +674,7 @@ def _add_labour_rates_reference(
     worksheet.merge_cells("A2:N2")
     worksheet["A2"] = (
         "Annual reference used by every pricing sheet in this workbook. "
-        "Manage these values in ERIC's Quoter under Menu > Labour rates."
+        "Manage these values in Power Systems Costing Workbook under Menu > Labour rates."
     )
     worksheet["A2"].font = Font(name="Segoe UI", size=10, color=muted)
     worksheet["A2"].alignment = Alignment(wrap_text=True, vertical="center")

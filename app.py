@@ -1,4 +1,4 @@
-"""Development and packaged entry point for ERIC's Quoter."""
+"""Development and packaged entry point for Power Systems Costing Workbook."""
 
 from __future__ import annotations
 

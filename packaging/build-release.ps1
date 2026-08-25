@@ -72,7 +72,7 @@ try {
     & $innoCompiler "/DMyAppVersion=$Version" $innoScript
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed." }
 
-    $installer = Join-Path $projectRoot "dist\installer\ERICs-Quoter-Setup-v$Version.exe"
+    $installer = Join-Path $projectRoot "dist\installer\PowerSystemsCostingWorkbook-Setup-v$Version.exe"
     if (-not (Test-Path -LiteralPath $installer)) {
         throw "Installer build completed without producing $installer"
     }

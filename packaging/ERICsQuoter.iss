@@ -1,8 +1,8 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0"
+  #define MyAppVersion "1.2.1"
 #endif
 
-#define MyAppName "ERIC's Quoter"
+#define MyAppName "Power Systems Costing Workbook"
 #define MyAppExeName "ERICsQuoter.exe"
 
 [Setup]
@@ -18,7 +18,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist\installer
-OutputBaseFilename=ERICs-Quoter-Setup-v{#MyAppVersion}
+OutputBaseFilename=PowerSystemsCostingWorkbook-Setup-v{#MyAppVersion}
 SetupIconFile=GDI-ICON.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max

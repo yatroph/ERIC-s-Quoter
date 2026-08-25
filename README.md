@@ -1,12 +1,12 @@
-# ERIC's Quoter
+# Power Systems Costing Workbook
 
 A small GDI Ainsworth desktop app that creates a new Excel costing workbook from the supplied templates.
 
 ## Install on Windows
 
-Download the latest `ERICs-Quoter-Setup` executable from the
+Download the latest `PowerSystemsCostingWorkbook-Setup` executable from the
 [GitHub releases page](https://github.com/yatroph/ERIC-s-Quoter/releases/latest),
-run it, and launch **ERIC's Quoter** from the Start menu.
+run it, and launch **Power Systems Costing Workbook** from the Start menu.
 
 The installer is built for 64-bit Windows 10 and Windows 11. Python and the
 app's libraries are bundled, so they do not need to be installed separately.
@@ -19,8 +19,8 @@ The repository already includes a project-local `.venv` and an F5 launch profile
 
 1. Open this folder in VS Code.
 2. Press **F5**.
-3. Choose **Multi-location** or **Contract pricing**. Contract pricing can also
-   be switched from a single site to multiple locations.
+3. Choose **Contract pricing** (the default) or **Multi-location**. Contract
+   pricing can also be switched from a single site to multiple locations.
 4. Enter the customer and optional project scope, then choose locations or a
    one-to-five-year contract term. Up to 20 locations can be added; each site
    name becomes its worksheet name and optional tabs receive an `(Optional)`
@@ -58,7 +58,7 @@ Windows user's local app data folder. They are not uploaded anywhere.
 Inno Setup 6 must be installed. Then run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.1.1
+powershell -ExecutionPolicy Bypass -File .\packaging\build-release.ps1 -Version 1.2.1
 ```
 
 The versioned installer is written to `dist\installer`.

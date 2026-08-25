@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "ERIC's Quoter",
+      "name": "Power Systems Costing Workbook",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}\\app.py",

@@ -1,4 +1,4 @@
-"""Compact, pill-based CustomTkinter interface for ERIC's Quoter."""
+"""Compact, pill-based CustomTkinter interface for Power Systems Costing Workbook."""
 
 from __future__ import annotations
 
@@ -204,7 +204,7 @@ class LabourRatesDialog(ctk.CTkToplevel):
 
     def __init__(self, master, settings: LabourRateSettings, on_save) -> None:
         super().__init__(master)
-        self.title("Labour Rates · ERIC's Quoter")
+        self.title("Labour Rates · Power Systems Costing Workbook")
         self.geometry("920x710")
         self.minsize(860, 700)
         self.configure(fg_color=COLORS["surface_alt"])
@@ -501,14 +501,14 @@ class QuoterApp(ctk.CTk):
 
     def __init__(self, screenshot_path: Path | None = None) -> None:
         super().__init__()
-        self.title("ERIC's Quoter")
+        self.title("Power Systems Costing Workbook")
         self.geometry("1120x780")
         self.minsize(960, 720)
         self.configure(fg_color=COLORS["mesh_base"])
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        self._mode = QuoteMode.MULTI_LOCATION
+        self._mode = QuoteMode.MULTI_YEAR
         self._location_count = 1
         self._contract_years = MAX_CONTRACT_YEARS
         self._include_locations = False
@@ -526,7 +526,7 @@ class QuoterApp(ctk.CTk):
         self._build_layout()
         self._bind_shortcuts()
         self.bind("<Configure>", self._schedule_shell_resize)
-        self._set_mode(QuoteMode.MULTI_LOCATION)
+        self._set_mode(QuoteMode.MULTI_YEAR)
         self.after(120, self.customer_entry.focus_set)
         if screenshot_path:
             self.after(1200, self._capture_screenshot)
