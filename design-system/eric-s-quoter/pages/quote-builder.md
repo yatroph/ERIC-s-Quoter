@@ -9,8 +9,12 @@ These rules override the master design system only for the workbook-builder wind
 
 - Use one centered, rounded app shell over the supplied GDI mesh background.
 - Keep the main workflow on one screen; only the location list scrolls when needed.
+- Put annual labour-rate settings in the application Menu and edit them in a
+  focused modal with persistent labels, inline validation, and an explicit save.
 - Use a two-option segmented pill for Multi-location and Multi-year modes.
-- Use progressive disclosure: show locations only for Multi-location and a compact 1–5 year selector for Contract pricing.
+- Use progressive disclosure: show locations for Multi-location, and reveal the
+  same location section beneath the compact 1–5 year selector when contract
+  pricing is switched to multiple locations.
 
 ## Brand and typography
 
@@ -20,13 +24,18 @@ These rules override the master design system only for the workbook-builder wind
 
 ## Components
 
-- Pill inputs use a 23px radius; the primary action uses a 25px radius.
+- Use restrained 10â€“16px radii on nested controls so adjacent rounded surfaces
+  do not create crescent or notch artifacts; reserve the full pill treatment for
+  standalone status badges and the primary action.
 - Every pointer action also supports keyboard operation.
 - Required/Optional state is expressed with text as well as color.
 - Selected pricing mode is conveyed by surface, border, and text contrast.
-- Use a pill stepper for 1-6 locations.
+- Use a pill stepper for 1–20 locations; keep the location list independently
+  scrollable so the save and create controls remain visible.
 - Use a five-segment, text-labelled pill for the 1–5 year contract term.
 - Keep controls at least 44px high where practical.
+- Clear prior success messages as soon as the form changes so status always
+  describes the workbook represented by the current inputs.
 
 ## Avoid
 

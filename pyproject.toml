@@ -1,6 +1,6 @@
 [project]
 name = "erics-quoter"
-version = "1.1.1"
+version = "1.2.0"
 description = "GDI Ainsworth costing workbook generator"
 requires-python = ">=3.11"
 dependencies = [

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from .labour_rates import LabourRateSettings
+
 
 class QuoteMode(StrEnum):
     MULTI_LOCATION = "multi_location"
@@ -26,3 +28,5 @@ class QuoteRequest:
     locations: tuple[LocationSpec, ...] = field(default_factory=tuple)
     contract_years: int = 5
     output_directory: Path = Path("Generated Quotes")
+    include_locations: bool = False
+    labour_rates: LabourRateSettings | None = None

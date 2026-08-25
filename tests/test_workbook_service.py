@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+import warnings
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
@@ -139,34 +140,44 @@ def test_generates_required_and_optional_location_sheets(tmp_path):
     workbook = load_workbook(destination, data_only=False)
     summary = workbook["Cost Summary"]
     assert summary["A1"].value == "Customer and Project Scope - Contoso | Plant retrofit"
-    assert workbook["Location 1"]["R1"].value == "Main plant"
-    assert workbook["Location 2"]["R1"].value == "Admin building"
-    assert workbook["Option 1"]["R1"].value == "Warehouse option"
-    assert workbook["Option 2"]["R1"].value == "Future line"
-    assert summary["B21"].value == "='Location 1'!R1"
-    assert summary["B22"].value == "='Location 2'!R1"
-    assert summary["B30"].value == "='Option 1'!R1"
-    assert summary["B31"].value == "='Option 2'!R1"
-    assert summary["J36"].value == "=SUM(J30:J35)"
+    assert workbook["Main plant"]["R1"].value == "Main plant"
+    assert workbook["Admin building"]["R1"].value == "Admin building"
+    assert workbook["Warehouse option (Optional)"]["R1"].value == (
+        "Warehouse option (Optional)"
+    )
+    assert workbook["Future line (Optional)"]["R1"].value == (
+        "Future line (Optional)"
+    )
+    assert summary["B21"].value == "='Main plant'!R1"
+    assert summary["B22"].value == "='Admin building'!R1"
+    assert summary["B30"].value == "='Warehouse option (Optional)'!R1"
+    assert summary["B31"].value == "='Future line (Optional)'!R1"
+    assert summary["J32"].value == "=SUM(J30:J31)"
     assert summary["H30"].value == "=F30*G30"
-    assert summary["J49"].value == "=J39+J41+J43+J45+J47"
+    assert summary["J35"].value == "=J18+J27"
+    assert summary["J39"].value == 0
+    assert summary["J43"].value == "=(J32)"
+    assert summary["J47"].value == "=J45+J46"
+    assert summary["J52"].value == "Price"
     assert summary["A27"].value == "Subtotal Required Locations"
     assert summary["B29"].value == "Optional Location"
-    assert summary["A36"].value == "Subtotal Optional Locations"
-    assert summary.print_area == "'Cost Summary'!$A$1:$J$36"
-    assert workbook["Location 3"].sheet_state == "hidden"
+    assert summary["A32"].value == "Subtotal Optional Locations"
+    assert summary.print_area == "'Cost Summary'!$A$1:$J$32"
+    assert "Location 3" not in workbook.sheetnames
     assert summary.sheet_view.tabSelected is True
-    assert workbook["Location 1"].sheet_view.tabSelected is False
-    assert summary["D65"].value == "=(C65+17)"
-    assert summary["C74"].value == "=C65/$K$74"
-    assert summary["I90"].value == "=I89/0.9"
-    assert summary["K74"].value == 0.8
+    assert workbook["Main plant"].sheet_view.tabSelected is False
+    assert summary["D61"].value == "='Labour Rates'!$E$6"
+    assert summary["C70"].value == "='Labour Rates'!$I$6"
+    assert summary["I86"].value == "=I85/0.9"
+    assert summary["K70"].value == "='Labour Rates'!$H$6"
     assert str(summary.data_validations.dataValidation[0].sqref) == (
-        "I6:I12 I16 K74"
+        "I6:I12 I16 K70"
     )
-    assert summary.row_dimensions[64].height == 32.25
-    assert summary.row_dimensions[73].height == 32.25
-    assert workbook["Option 2"].print_area == "'Option 2'!$A$1:$P$62"
+    assert summary.row_dimensions[60].height == 32.25
+    assert summary.row_dimensions[69].height == 32.25
+    assert workbook["Future line (Optional)"].print_area == (
+        "'Future line (Optional)'!$A$1:$P$62"
+    )
 
 
 def test_supports_six_optional_locations_without_overwriting(tmp_path):
@@ -186,10 +197,12 @@ def test_supports_six_optional_locations_without_overwriting(tmp_path):
 
     workbook = load_workbook(first, data_only=False)
     summary = workbook["Cost Summary"]
-    assert workbook["Option 6"]["R1"].value == "Optional site 6"
-    assert summary["B35"].value == "='Option 6'!R1"
+    assert workbook["Optional site 6 (Optional)"]["R1"].value == (
+        "Optional site 6 (Optional)"
+    )
+    assert summary["B35"].value == "='Optional site 6 (Optional)'!R1"
     assert summary.row_dimensions[35].hidden is False
-    assert all(workbook[f"Location {index}"].sheet_state == "hidden" for index in range(1, 7))
+    assert not any(name.startswith("Location ") for name in workbook.sheetnames)
 
 
 def test_formula_looking_location_name_is_stored_as_literal_text(tmp_path):
@@ -204,11 +217,221 @@ def test_formula_looking_location_name_is_stored_as_literal_text(tmp_path):
     )
 
     workbook = load_workbook(destination, data_only=False)
-    sheet = workbook["Location 1"]
+    sheet = next(
+        worksheet
+        for worksheet in workbook.worksheets
+        if worksheet.title not in {"Cost Summary", "Labour Rates"}
+    )
     assert sheet["A1"].value == payload
     assert sheet["A1"].data_type == "s"
     assert sheet["R1"].value == payload
     assert sheet["R1"].data_type == "s"
+
+
+def test_supports_twenty_locations_and_scales_summary(tmp_path):
+    locations = tuple(
+        LocationSpec(f"Site {index}", optional=index > 12)
+        for index in range(1, 21)
+    )
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_LOCATION,
+            customer_name="Twenty Site Customer",
+            locations=locations,
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    summary = workbook["Cost Summary"]
+    assert len(workbook.sheetnames) == 22
+    assert workbook.sheetnames == (
+        ["Cost Summary"]
+        + [f"Site {index}" for index in range(1, 13)]
+        + [f"Site {index} (Optional)" for index in range(13, 21)]
+        + ["Labour Rates"]
+    )
+    assert summary["B32"].value == "='Site 12'!R1"
+    assert summary["A33"].value == "Subtotal Required Locations"
+    assert summary["B43"].value == "='Site 20 (Optional)'!R1"
+    assert summary["A44"].value == "Subtotal Optional Locations"
+    assert summary["J44"].value == "=SUM(J36:J43)"
+    assert summary["J55"].value == "=(J44)"
+    assert summary["J59"].value == "=J57+J58"
+    assert summary.print_area == "'Cost Summary'!$A$1:$J$44"
+    assert summary["K82"].value == "='Labour Rates'!$H$6"
+
+
+@pytest.mark.parametrize("contract_years", [1, 3, 5])
+def test_contract_pricing_can_create_named_location_tabs(tmp_path, contract_years):
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_YEAR,
+            customer_name="Contract Sites",
+            project_scope="Regional service",
+            locations=(
+                LocationSpec("Toronto/DC"),
+                LocationSpec("Future Campus", optional=True),
+            ),
+            contract_years=contract_years,
+            include_locations=True,
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    assert workbook.sheetnames == [
+        "Toronto-DC",
+        "Future Campus (Optional)",
+        "Labour Rates",
+    ]
+    expected_display_names = ("Toronto/DC", "Future Campus (Optional)")
+    for title, display_name in zip(
+        workbook.sheetnames[:2],
+        expected_display_names,
+        strict=True,
+    ):
+        sheet = workbook[title]
+        assert "Contract Sites | Regional service" in sheet["A1"].value
+        assert sheet["A1"].value.endswith(f"Location - {display_name}")
+        assert sheet.sheet_state == "visible"
+        if contract_years == 1:
+            assert sheet.print_area == f"'{title}'!$A$1:$P$65"
+        else:
+            assert sheet.print_area == f"'{title}'!$A$1:$V$80"
+            assert sheet["V79"].value == (
+                f"=SUM(P79:{('P', 'Q', 'R', 'S', 'T')[contract_years - 1]}79)"
+            )
+    assert workbook.active.title == "Toronto-DC"
+
+
+def test_labour_rates_are_global_and_bonding_is_preserved(tmp_path):
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_YEAR,
+            customer_name="Rates Customer",
+            contract_years=1,
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    rates = workbook["Labour Rates"]
+    pricing = workbook["Pricing"]
+    assert rates["A1"].value == "GDI Ainsworth Labour Rates — 2026"
+    assert rates["A6"].value == "FOREMAN"
+    assert rates["B6"].value == 102.0
+    assert rates["B19"].value == 18.5
+    assert rates["B20"].value == 0.8
+    assert pricing["C73"].value == "='Labour Rates'!$B$6"
+    assert pricing["D73"].value == "='Labour Rates'!$E$6"
+    assert pricing["C83"].value == "='Labour Rates'!$I$6"
+    assert pricing["K83"].value == "='Labour Rates'!$H$6"
+    assert pricing["B92"].value == "Bonding"
+    assert pricing["C93"].value == 8.7
+    assert pricing["I99"].value == "=I98/0.9"
+
+
+def test_location_sheet_titles_are_unique_and_excel_safe(tmp_path):
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_LOCATION,
+            customer_name="Sheet Names",
+            locations=(
+                LocationSpec("North/Plant"),
+                LocationSpec("North:Plant"),
+                LocationSpec("Labour Rates"),
+                LocationSpec("A" * 80, optional=True),
+            ),
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    assert workbook.sheetnames == [
+        "Cost Summary",
+        "North-Plant",
+        "North-Plant (2)",
+        "Labour Rates (2)",
+        "AAAAAAAAAAAAAAAAAAAA (Optional)",
+        "Labour Rates",
+    ]
+    assert all(len(title) <= 31 for title in workbook.sheetnames)
+
+
+def test_rejects_more_than_twenty_locations(tmp_path):
+    with pytest.raises(WorkbookGenerationError, match="between 1 and 20 locations"):
+        generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_LOCATION,
+                customer_name="Too Many Sites",
+                locations=tuple(LocationSpec(str(index)) for index in range(21)),
+                output_directory=tmp_path,
+            )
+        )
+
+
+def test_twenty_location_contract_generation_emits_no_excel_title_warnings(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        destination = generate_quote(
+            QuoteRequest(
+                mode=QuoteMode.MULTI_YEAR,
+                customer_name="Twenty Contract Sites",
+                locations=tuple(
+                    LocationSpec(f"Contract Site {index}")
+                    for index in range(1, 21)
+                ),
+                contract_years=5,
+                include_locations=True,
+                output_directory=tmp_path,
+            )
+        )
+
+    assert caught == []
+    workbook = load_workbook(destination, data_only=False)
+    assert len(workbook.sheetnames) == 21
+    assert workbook.sheetnames[0] == "Contract Site 1"
+    assert workbook.sheetnames[-2] == "Contract Site 20"
+    assert workbook.sheetnames[-1] == "Labour Rates"
+
+
+def test_apostrophe_in_location_name_is_escaped_in_summary_formula(tmp_path):
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_LOCATION,
+            customer_name="Quoted Sheet Name",
+            locations=(LocationSpec("King's Site"),),
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    assert "King's Site" in workbook.sheetnames
+    assert workbook["Cost Summary"]["B21"].value == "='King''s Site'!R1"
+
+
+def test_location_sheet_titles_respect_excels_utf16_unit_limit(tmp_path):
+    destination = generate_quote(
+        QuoteRequest(
+            mode=QuoteMode.MULTI_LOCATION,
+            customer_name="Unicode Sheet Name",
+            locations=(
+                LocationSpec("😀" * 31),
+                LocationSpec("🚀" * 31, optional=True),
+            ),
+            output_directory=tmp_path,
+        )
+    )
+
+    workbook = load_workbook(destination, data_only=False)
+    site_titles = [
+        title
+        for title in workbook.sheetnames
+        if title not in {"Cost Summary", "Labour Rates"}
+    ]
+    assert site_titles == ["😀" * 15, f"{'🚀' * 10} (Optional)"]
+    assert all(len(title.encode("utf-16-le")) // 2 <= 31 for title in site_titles)
 
 
 @pytest.mark.parametrize(
